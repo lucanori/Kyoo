@@ -30,6 +30,11 @@ import { Info } from "~/ui/info";
 import { Remote } from "~/ui/remote";
 import { useSetting } from "~/ui/settings/base";
 import { useQueryState } from "~/utils";
+import {
+	type AppliedAndroidSource,
+	applyAndroidPlayerSource,
+	parseExplicitStartTime,
+} from "./android-source";
 import { CastingScreen } from "./casting-screen";
 import { Controls, LoadingIndicator } from "./controls";
 import { ErrorPopup } from "./controls/error-popup";
@@ -262,7 +267,25 @@ export const Player = () => {
 		[source, restartTime],
 	);
 
+	const appliedAndroidSourceRef = useRef<AppliedAndroidSource | null>(null);
+	const explicitStartTime = parseExplicitStartTime(requestedStart);
+	// android only: re-evaluate the source when casting starts or ends, so a
+	// player whose source was cleared or handed over on detach gets its
+	// source back (or keeps it after a genuine cast transfer). web has no
+	// cast status to react to, keep its deps unchanged.
+	const androidCastStatus = Platform.OS === "android" ? castStatus : undefined;
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: androidCastStatus is a trigger dep so casting changes re-evaluate the android source
 	useEffect(() => {
+		if (Platform.OS === "android") {
+			applyAndroidPlayerSource({
+				player,
+				appliedRef: appliedAndroidSourceRef,
+				nextSource: playbackSource,
+				explicitStartTime,
+			});
+			return;
+		}
 		if (
 			Platform.OS !== "web" &&
 			(player.castStatus === "connected" ||
@@ -274,13 +297,16 @@ export const Player = () => {
 			return;
 		}
 		setPlayerSource(player, playbackSource);
-	}, [playbackSource, player]);
+	}, [playbackSource, player, explicitStartTime, androidCastStatus]);
 
 	// When leaving the watch screen, unload the player unless it is casting (the
 	// mini-player then keeps driving the receiver).
 	const unloadUnlessCasting = useEffectEvent(() => {
 		const isCasting = castStatus === "connected" || castStatus === "connecting";
-		if (!isCasting) setPlayerSource(player, undefined);
+		if (!isCasting) {
+			appliedAndroidSourceRef.current = null;
+			setPlayerSource(player, undefined);
+		}
 	});
 	useEffect(() => {
 		return () => unloadUnlessCasting();
@@ -308,6 +334,7 @@ export const Player = () => {
 			player.playNext();
 			return;
 		}
+		appliedAndroidSourceRef.current = null;
 		setPlayerSource(player, undefined);
 		if (data?.show?.href) router.replace(data.show.href);
 	};
