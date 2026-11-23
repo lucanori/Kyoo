@@ -5,10 +5,10 @@ import { useTranslation } from "react-i18next";
 import { Platform } from "react-native";
 import { z } from "zod/v4";
 import { useDLE } from "~/data";
+import { isDefinitiveAuthError } from "~/data/error-utils";
 import { LiveUpdates } from "~/data/events";
 import { Account, User } from "~/models";
 import { AuthInfo } from "~/models/auth-info";
-import { RetryableError } from "~/models/retryable-error";
 import { AccountContext, AccountsContext, useAccount } from "./account-context";
 import { readAccounts, removeAccounts, updateAccount } from "./account-store";
 import { useStoreValue } from "./settings";
@@ -88,7 +88,7 @@ const AccountSync = () => {
 		{ returnError: true },
 	);
 	useEffect(() => {
-		if (error && !(error instanceof RetryableError && error.key === "offline"))
+		if (error && isDefinitiveAuthError(error))
 			router.replace(Platform.OS === "web" ? "/login" : "/server");
 	}, [error, router]);
 

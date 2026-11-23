@@ -32,6 +32,19 @@ server {
   add_header Cross-Origin-Opener-Policy same-origin;
   add_header Cross-Origin-Embedder-Policy credentialless;
 
+  location = /index.html {
+    add_header Cross-Origin-Opener-Policy same-origin;
+    add_header Cross-Origin-Embedder-Policy credentialless;
+    add_header Cache-Control "no-cache";
+  }
+
+  location ~ "^/(_expo/static/(css/.+-[0-9a-f]{32}\.css|js/web/.+-[0-9a-f]{32}\.js)|assets/.+\.[0-9a-f]{32}(@[0-9]+(\.[0-9]+)?x)?\.[a-zA-Z0-9]+)$" {
+    try_files \$uri =404;
+    add_header Cross-Origin-Opener-Policy same-origin;
+    add_header Cross-Origin-Embedder-Policy credentialless;
+    add_header Cache-Control "public, max-age=31536000, immutable";
+  }
+
   location / {
     try_files \$uri \$uri/ /index.html;
   }

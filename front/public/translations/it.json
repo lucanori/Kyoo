@@ -177,7 +177,22 @@
 		"transmux": "Originale",
 		"auto": "",
 		"notInPristine": "",
-		"unsupportedError": ""
+		"unsupportedError": "",
+		"recovery": {
+			"dismiss": "Chiudi",
+			"exhausted": "Impossibile ripristinare la riproduzione automaticamente. Controlla la connessione e riprova.",
+			"offline": "Sembri offline. La riproduzione riprenderà automaticamente quando tornerai online.",
+			"offlineTitle": "Connessione persa",
+			"retry": "Riprova",
+			"retrying": "Un errore di rete ha interrotto la riproduzione. Tentativo di riconnessione…",
+			"retryingTitle": "Riconnessione",
+			"unknown": "La riproduzione si è interrotta per un errore imprevisto. Puoi riprovare.",
+			"unknownTitle": "Riproduzione interrotta",
+			"unsupported": "Questo formato video o flusso non può essere riprodotto nel tuo browser.",
+			"unsupportedAuth": "Non hai i permessi per riprodurre questo video.",
+			"unsupportedDecode": "Impossibile decodificare questo video. Potrebbe essere danneggiato o non supportato dal browser.",
+			"unsupportedNotFound": "Impossibile trovare questo flusso video."
+		}
 	},
 	"search": {
 		"empty": ""
@@ -211,15 +226,29 @@
 		"retry": ""
 	},
 	"errors": {
-		"connection": "",
-		"connection-tips": "",
-		"unknown": "",
-		"try-again": "",
-		"re-login": "",
-		"offline": "",
-		"unauthorized": "",
-		"needVerification": "",
-		"needAccount": ""
+		"connection": "Impossibile connettersi al server di Kyoo",
+		"connection-description": "Verifica che il server sia avviato e riprova.",
+		"temporary": "Server temporaneamente non disponibile",
+		"temporary-description": "Attendi un momento e riprova.",
+		"rate-limited": "Troppe richieste",
+		"rate-limited-description": "Attendi qualche minuto e riprova.",
+		"session-expired": "Sessione scaduta",
+		"session-expired-description": "Accedi di nuovo per continuare.",
+		"unknown": "Errore sconosciuto",
+		"unknown-description": "Si è verificato un errore durante il caricamento di questa pagina. Riprova.",
+		"try-again": "Riprova",
+		"re-login": "Accedi di nuovo",
+		"offline-title": "Sei offline",
+		"offline": "Riconnettiti a Internet per continuare.",
+		"unauthorized": "Non hai i permessi {{permission}} per accedere a questa pagina.",
+		"forbidden": "Accesso negato",
+		"forbidden-description": "Non hai il permesso di visualizzare questo contenuto.",
+		"not-found": "Non trovato",
+		"not-found-description": "L'elemento richiesto non è stato trovato.",
+		"invalid-response": "Risposta del server non valida",
+		"invalid-response-description": "Il server ha restituito una risposta inattesa. Le versioni dell'app e del server potrebbero non essere compatibili.",
+		"needVerification": "Il tuo account deve essere verificato dall'amministratore del server prima di poterlo utilizzare.",
+		"needAccount": "Questa pagina non è accessibile in modalità ospite. Devi creare un account o accedere."
 	},
 	"mediainfo": {
 		"file": "",

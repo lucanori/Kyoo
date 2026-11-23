@@ -1,6 +1,13 @@
 import { Stack, useRouter } from "expo-router";
 import { useIsFocused } from "expo-router/react-navigation";
-import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import {
+	type ComponentRef,
+	useEffect,
+	useEffectEvent,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, StyleSheet, View } from "react-native";
 import {
@@ -32,8 +39,11 @@ import { EntriesMenu } from "./entries-menu";
 import { setPlayerSource } from "./imperative";
 import { useKeyboard } from "./keyboard";
 import { useLanguagePreference } from "./language-preference";
+import { DEFAULT_PLAY_MODE, type PlayMode } from "./play-mode";
 import { usePresign } from "./presign";
 import { useProgressObserver } from "./progress-observer";
+import { type RecoverySnapshot, sanitizeErrorText } from "./recovery";
+import { useBrowserPlaybackRecovery } from "./use-recovery";
 
 const clientId = uuidv4();
 
@@ -49,12 +59,11 @@ const withPresign = (url: string, signature: string | null): string => {
 	return `${url}${url.includes("?") ? "&" : "?"}x-presign=${signature}`;
 };
 
-type PlayMode = "direct" | "hls";
-
 export const Player = () => {
 	const [slug, setSlug] = useQueryState<string>("slug", undefined!);
 	const [startQ, setStartQ] = useQueryState<string | undefined>("t", undefined);
 	const [start, setStart] = useState<string | undefined>(startQ);
+	const requestedStart = startQ ?? start;
 
 	useEffect(() => {
 		if (startQ === undefined) return;
@@ -101,7 +110,10 @@ export const Player = () => {
 	const [local, setLocal] = useState({ slug, file });
 	if (local.slug !== slug) setLocal({ slug, file });
 	const sign = local.file ? null : presign;
-	const [defaultPlayMode] = useLocalSetting<PlayMode>("playMode", "direct");
+	const [defaultPlayMode] = useLocalSetting<PlayMode>(
+		"playMode",
+		DEFAULT_PLAY_MODE,
+	);
 	const [playMode, setPlayMode] = useState(defaultPlayMode);
 	const [playbackError, setPlaybackError] = useState<KyooError | undefined>();
 
@@ -155,8 +167,8 @@ export const Player = () => {
 						? { Authorization: `Bearer ${authToken}` }
 						: {},
 			},
-			startTime: start
-				? Number.parseInt(start, 10)
+			startTime: requestedStart
+				? Number.parseInt(requestedStart, 10)
 				: data.progress && data.progress.percent >= 95
 					? 0
 					: data.progress?.time,
@@ -210,30 +222,62 @@ export const Player = () => {
 		playMode,
 		info,
 		authToken,
-		start,
+		requestedStart,
 		data,
 		images,
 		title,
 		sign,
 		local,
 	]);
+
+	const castStatus = usePlayerState("castStatus");
+	const viewRef = useRef<ComponentRef<typeof View>>(null);
+	const {
+		recovery,
+		handleError: handleBrowserPlaybackError,
+		manualRetry,
+		dismiss: dismissRecovery,
+	} = useBrowserPlaybackRecovery({
+		enabled:
+			Platform.OS === "web" &&
+			!!source &&
+			!local.file &&
+			castStatus !== "connected" &&
+			castStatus !== "connecting",
+		sourceKey: JSON.stringify([
+			apiUrl,
+			slug,
+			playMode,
+			local.file,
+			requestedStart,
+		]),
+		viewRef,
+	});
+	const restartTime = recovery.restart?.startTime;
+	const playbackSource = useMemo(
+		() =>
+			source && restartTime != null
+				? { ...source, startTime: restartTime }
+				: source,
+		[source, restartTime],
+	);
+
 	useEffect(() => {
 		if (
 			Platform.OS !== "web" &&
 			(player.castStatus === "connected" ||
 				player.castStatus === "connecting") &&
-			(!source || player.source?.castId === source.castId)
+			(!playbackSource || player.source?.castId === playbackSource.castId)
 		) {
 			// do not re-set the source when casting the correct content,
 			// it would restart playback
 			return;
 		}
-		setPlayerSource(player, source);
-	}, [source, player]);
+		setPlayerSource(player, playbackSource);
+	}, [playbackSource, player]);
 
 	// When leaving the watch screen, unload the player unless it is casting (the
 	// mini-player then keeps driving the receiver).
-	const castStatus = usePlayerState("castStatus");
 	const unloadUnlessCasting = useEffectEvent(() => {
 		const isCasting = castStatus === "connected" || castStatus === "connecting";
 		if (!isCasting) setPlayerSource(player, undefined);
@@ -310,8 +354,11 @@ export const Player = () => {
 		Platform.OS !== "web" &&
 		(castStatus === "connected" || castStatus === "connecting");
 
+	const recoveryPopup = getRecoveryPopupProps(recovery, t, manualRetry);
+	const hasError = !!playbackError || !!recoveryPopup;
+
 	return (
-		<View className="flex-1 bg-black">
+		<View ref={viewRef} className="flex-1 bg-black">
 			<Head
 				title={title}
 				description={entry?.description}
@@ -352,20 +399,94 @@ export const Player = () => {
 						playMode={playMode}
 						setPlayMode={playModeState[1]}
 						setStart={setStart}
-						playbackError={playbackError}
-						setPlaybackError={setPlaybackError}
+						playbackSource={playbackSource}
+						techKey={recovery.restart?.key ?? 0}
+						hasError={hasError}
+						onPlaybackError={(type, message) => {
+							// Remote web recovery handles every playback error
+							// and shows generic copy. Reach this fallback only
+							// where recovery is disabled (local, native, cast),
+							// so keep the sanitized message there.
+							const result = handleBrowserPlaybackError(type, message);
+							if (result.handled) {
+								setPlaybackError(undefined);
+							} else {
+								setPlaybackError({
+									status: type,
+									message: sanitizeErrorText(message),
+								});
+							}
+						}}
 						seekEnd={onEnd}
 					/>
 				</PlayModeContext.Provider>
 			)}
-			{playbackError && (
+			{playbackError ? (
 				<ErrorPopup
 					message={playbackError.message}
 					dismiss={() => setPlaybackError(undefined)}
 				/>
+			) : (
+				recoveryPopup && (
+					<ErrorPopup
+						title={recoveryPopup.title}
+						message={recoveryPopup.message}
+						onRetry={recoveryPopup.onRetry}
+						dismiss={dismissRecovery}
+					/>
+				)
 			)}
 		</View>
 	);
+};
+
+const getRecoveryPopupProps = (
+	recovery: RecoverySnapshot,
+	t: ReturnType<typeof useTranslation>["t"],
+	manualRetry: () => void,
+): { title: string; message: string; onRetry?: () => void } | null => {
+	switch (recovery.phase) {
+		case "idle":
+			return null;
+		case "scheduled":
+			return {
+				title: t("player.recovery.retryingTitle"),
+				message: t("player.recovery.retrying"),
+				onRetry: manualRetry,
+			};
+		case "offline":
+			return {
+				title: t("player.recovery.offlineTitle"),
+				message: t("player.recovery.offline"),
+				onRetry: manualRetry,
+			};
+		case "exhausted":
+			return {
+				title: t("player.fatal"),
+				message: t("player.recovery.exhausted"),
+				onRetry: manualRetry,
+			};
+		case "unknown":
+			return {
+				title: t("player.recovery.unknownTitle"),
+				message: t("player.recovery.unknown"),
+				onRetry: manualRetry,
+			};
+		case "unrecoverable": {
+			const message =
+				recovery.reason === "auth"
+					? t("player.recovery.unsupportedAuth")
+					: recovery.reason === "not-found"
+						? t("player.recovery.unsupportedNotFound")
+						: recovery.reason === "decode"
+							? t("player.recovery.unsupportedDecode")
+							: t("player.recovery.unsupported");
+			return {
+				title: t("player.fatal"),
+				message,
+			};
+		}
+	}
 };
 
 const PlayerContent = ({
@@ -375,8 +496,10 @@ const PlayerContent = ({
 	playMode,
 	setPlayMode,
 	setStart,
-	playbackError,
-	setPlaybackError,
+	playbackSource,
+	techKey,
+	hasError,
+	onPlaybackError,
 	seekEnd,
 }: {
 	data?: Video;
@@ -385,8 +508,10 @@ const PlayerContent = ({
 	playMode: PlayMode;
 	setPlayMode: (mode: PlayMode) => void;
 	setStart: (start: string | undefined) => void;
-	playbackError?: KyooError;
-	setPlaybackError: (error: KyooError | undefined) => void;
+	playbackSource?: Source;
+	techKey: number;
+	hasError: boolean;
+	onPlaybackError: (type: string, message: string) => void;
 	seekEnd: () => void;
 }) => {
 	const [entriesMenuOpen, setEntriesMenuOpen] = useState(false);
@@ -403,28 +528,43 @@ const PlayerContent = ({
 		};
 	}, []);
 
+	const appliedSource = usePlayerState("source");
+	// OmniView builds the HLS engine (including startPosition) from the
+	// provider's source. Unmount the old tech and wait for the new source
+	// before mounting, so a retry cannot request media at the old time first.
+	const mediaReady =
+		Platform.OS !== "web" ||
+		(!!playbackSource &&
+			appliedSource?.src.uri === playbackSource.src.uri &&
+			appliedSource.src.mimeType === playbackSource.src.mimeType &&
+			Object.is(appliedSource.startTime, playbackSource.startTime));
+
 	useEvent("error", (type: string, message: string) => {
+		if (!mediaReady) return;
 		if (type === "source/unsupported-content-type" && playMode === "direct")
 			setPlayMode("hls");
-		else setPlaybackError({ status: type, message });
+		else onPlaybackError(type, message);
 	});
 
 	return (
 		<>
-			<OmniView
-				autoplay
-				autoPip
-				style={StyleSheet.absoluteFill}
-				subtitleAssets={{
-					jassub: {
-						workerUrl: "/jassub/jassub-worker.js",
-						wasmUrl: "/jassub/jassub-worker.wasm",
-						modernWasmUrl: "/jassub/jassub-worker-modern.wasm",
-						fontUrl: "/jassub/default.woff2",
-					},
-					pgs: { workerUrl: "/libpgs/libpgs.worker.js" },
-				}}
-			/>
+			{mediaReady && (
+				<OmniView
+					key={techKey}
+					autoplay
+					autoPip
+					style={StyleSheet.absoluteFill}
+					subtitleAssets={{
+						jassub: {
+							workerUrl: "/jassub/jassub-worker.js",
+							wasmUrl: "/jassub/jassub-worker.wasm",
+							modernWasmUrl: "/jassub/jassub-worker-modern.wasm",
+							fontUrl: "/jassub/default.woff2",
+						},
+						pgs: { workerUrl: "/libpgs/libpgs.worker.js" },
+					}}
+				/>
+			)}
 			<CastingScreen name={data?.show?.name ?? data?.path} />
 			<LoadingIndicator />
 			<Controls
@@ -449,7 +589,7 @@ const PlayerContent = ({
 						? () => setEntriesMenuOpen(true)
 						: undefined
 				}
-				forceShow={!!playbackError || entriesMenuOpen}
+				forceShow={hasError || entriesMenuOpen}
 			/>
 			{data?.show?.kind === "serie" && (
 				<EntriesMenu

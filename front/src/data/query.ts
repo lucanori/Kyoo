@@ -18,6 +18,11 @@ import { z } from "zod/v4";
 import { Paged } from "~/models";
 import { useToken } from "~/providers/account-context";
 import { KyooEndpoint } from "./endpoint";
+import {
+	attachErrorRetry,
+	createCacheRetry,
+	registerErrorRetry,
+} from "./error-utils";
 
 type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 type Path = (string | undefined)[];
@@ -80,6 +85,7 @@ export function useFetch<Data>(
 ): Data | undefined;
 export function useFetch<Data>(query: QueryIdentifier<Data>): Data;
 export function useFetch<Data>(query: QueryIdentifier<Data>) {
+	const ctrl = useController();
 	const { endpoint, args } = useQueryEndpoint(
 		query,
 		query.schema,
@@ -87,6 +93,19 @@ export function useFetch<Data>(query: QueryIdentifier<Data>) {
 	);
 	const enabled = query.enabled !== false;
 	useSubscription(endpoint, enabled && query.refetchInterval ? args : null);
+	const cachedError = enabled
+		? ctrl.getError(endpoint, args, ctrl.getState())
+		: undefined;
+	if (cachedError) {
+		registerErrorRetry(
+			cachedError,
+			createCacheRetry(
+				() => ctrl.getError(endpoint, args, ctrl.getState()),
+				() => ctrl.invalidate(endpoint, args),
+				cachedError,
+			),
+		);
+	}
 	return useSuspense(endpoint, enabled ? args : null) as Data | undefined;
 }
 
@@ -94,6 +113,7 @@ export const useDLE = <Data>(
 	query: QueryIdentifier<Data>,
 	opt?: { returnError?: boolean },
 ) => {
+	const ctrl = useController();
 	const { endpoint, args } = useQueryEndpoint(
 		query,
 		query.schema,
@@ -105,7 +125,15 @@ export const useDLE = <Data>(
 		endpoint,
 		enabled ? args : null,
 	);
-	if (error && !opt?.returnError) throw error;
+	if (error && !opt?.returnError)
+		throw attachErrorRetry(
+			error,
+			createCacheRetry(
+				() => ctrl.getError(endpoint, args, ctrl.getState()),
+				() => ctrl.invalidate(endpoint, args),
+				error,
+			),
+		);
 	return { data: data as Data | undefined, loading, error };
 };
 
@@ -130,6 +158,17 @@ export const useInfiniteFetch = <Data>(query: QueryIdentifier<Data>) => {
 	);
 	const { endpoint, args } = useQueryEndpoint(query, schema, parser);
 	useSubscription(endpoint, query.refetchInterval ? args : null);
+	const cachedError = ctrl.getError(endpoint, args, ctrl.getState());
+	if (cachedError) {
+		registerErrorRetry(
+			cachedError,
+			createCacheRetry(
+				() => ctrl.getError(endpoint, args, ctrl.getState()),
+				() => ctrl.invalidate(endpoint, args),
+				cachedError,
+			),
+		);
+	}
 	const data = useSuspense(endpoint, args);
 	const [isRefetching, setRefetching] = useState(false);
 	const [isFetchingNextPage, setFetchingNextPage] = useState(false);

@@ -13,6 +13,11 @@ import type { AndroidBackend } from "react-native-omni";
 import { Select } from "~/primitives";
 import { useLocalSetting } from "~/providers/settings";
 import { useLanguageName } from "~/track-utils";
+import {
+	DEFAULT_PLAY_MODE,
+	PLAY_MODES,
+	type PlayMode,
+} from "~/ui/player/play-mode";
 import { Preference, SettingsContainer, useSetting } from "./base";
 
 const seenNativeNames = new Set();
@@ -31,7 +36,10 @@ export const languageCodes = Object.keys(langmap)
 
 export const PlaybackSettings = () => {
 	const { t } = useTranslation();
-	const [playMode, setDefaultPlayMode] = useLocalSetting("playMode", "direct");
+	const [playMode, setDefaultPlayMode] = useLocalSetting<PlayMode>(
+		"playMode",
+		DEFAULT_PLAY_MODE,
+	);
 	const [player, setPlayer] = useLocalSetting<AndroidBackend>("player", "auto");
 	const [audio, setAudio] = useSetting("audioLanguage")!;
 	const [subtitle, setSubtitle] = useSetting("subtitleLanguage")!;
@@ -48,7 +56,7 @@ export const PlaybackSettings = () => {
 					label={t("settings.playback.playmode.label")}
 					value={playMode}
 					onValueChange={(value) => setDefaultPlayMode(value)}
-					values={["direct", "hls"]}
+					values={[...PLAY_MODES]}
 					getLabel={(key) => t(key === "hls" ? "player.auto" : "player.direct")}
 				/>
 			</Preference>
