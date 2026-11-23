@@ -1,0 +1,236 @@
+diff --git a/dist/cjs/gen/index.js b/dist/cjs/gen/index.js
+index b6fcac71621b50eb497cd4c88c2106de5ec5bad7..bf34ee8237a7857801471a80522cd35c7d61d24a 100644
+--- a/dist/cjs/gen/index.js
++++ b/dist/cjs/gen/index.js
+@@ -2947,6 +2947,46 @@ var $ZodDate = /* @__PURE__ */ $constructor("$ZodDate", (inst, def) => {
+     return payload;
+   };
+ });
++// Upstream Zod fix (colinhacks/zod#6652, first released in 4.6.6): leading
++// size checks reject oversized bounded collections before any element is
++// parsed, so an oversized `z.array(...).max(n)` cannot accumulate one issue
++// per element before reporting `too_big` (GHSA-mrhx-c7xc-m3w5). Bundled Zod
++// 4.4.3 predates the fix; this mirrors upstream `util.sizeCaps`/`capSize`.
++function sizeCaps(defChecks) {
++  const caps = [];
++  for (const ch of defChecks ?? []) {
++    const d = ch._zod.def;
++    // a later check may rewrite the value, ending the gate
++    if (!/_(length|size)$|_equals$/.test(d.check)) break;
++    const max = d.maximum ?? d.length ?? d.size;
++    if (typeof max === "number" && max >= 0) caps.push([max, ch]);
++  }
++  return caps;
++}
++function capSize(inst, sizeFn) {
++  const caps = sizeCaps(inst._zod.def.checks);
++  if (!caps.length) return;
++  const cap = Math.min(...caps.map((c) => c[0]));
++  const parse = inst._zod.parse;
++  inst._zod.parse = (payload, ctx) => {
++    const n = sizeFn(payload.value);
++    if (n > cap && !ctx?.skipChecks && ctx?.direction !== "backward") {
++      for (const [max, ch] of sizeCaps(inst._zod.def.checks)) {
++        if (n > max) {
++          const when = ch._zod.def.when;
++          if (when && !when(payload)) continue;
++          const start = payload.issues.length;
++          ch._zod.check(payload);
++          const found = payload.issues[start];
++          if (found) found.continue = false;
++          return payload;
++        }
++      }
++    }
++    return parse(payload, ctx);
++  };
++}
++const arraySize = (input) => (Array.isArray(input) ? input.length : -1);
+ function handleArrayResult(result, final, index) {
+   if (result.issues.length) {
+     final.issues.push(...prefixIssues(index, result.issues));
+@@ -2985,6 +3025,7 @@ var $ZodArray = /* @__PURE__ */ $constructor("$ZodArray", (inst, def) => {
+     }
+     return payload;
+   };
++  capSize(inst, arraySize);
+ });
+ function handlePropertyResult(result, final, key, input, isOptionalIn, isOptionalOut) {
+   const isPresent = key in input;
+diff --git a/dist/cjs/index.js b/dist/cjs/index.js
+index 7507ec613ad1ddf16e49aac8986a2d832e99e736..dda8ec46d60e22309ad42d9a1096e6ffb30b2429 100644
+--- a/dist/cjs/index.js
++++ b/dist/cjs/index.js
+@@ -4136,6 +4136,46 @@ var $ZodDate = /* @__PURE__ */ $constructor("$ZodDate", (inst, def) => {
+     return payload;
+   };
+ });
++// Upstream Zod fix (colinhacks/zod#6652, first released in 4.6.6): leading
++// size checks reject oversized bounded collections before any element is
++// parsed, so an oversized `z.array(...).max(n)` cannot accumulate one issue
++// per element before reporting `too_big` (GHSA-mrhx-c7xc-m3w5). Bundled Zod
++// 4.4.3 predates the fix; this mirrors upstream `util.sizeCaps`/`capSize`.
++function sizeCaps(defChecks) {
++  const caps = [];
++  for (const ch of defChecks ?? []) {
++    const d = ch._zod.def;
++    // a later check may rewrite the value, ending the gate
++    if (!/_(length|size)$|_equals$/.test(d.check)) break;
++    const max = d.maximum ?? d.length ?? d.size;
++    if (typeof max === "number" && max >= 0) caps.push([max, ch]);
++  }
++  return caps;
++}
++function capSize(inst, sizeFn) {
++  const caps = sizeCaps(inst._zod.def.checks);
++  if (!caps.length) return;
++  const cap = Math.min(...caps.map((c) => c[0]));
++  const parse = inst._zod.parse;
++  inst._zod.parse = (payload, ctx) => {
++    const n = sizeFn(payload.value);
++    if (n > cap && !ctx?.skipChecks && ctx?.direction !== "backward") {
++      for (const [max, ch] of sizeCaps(inst._zod.def.checks)) {
++        if (n > max) {
++          const when = ch._zod.def.when;
++          if (when && !when(payload)) continue;
++          const start = payload.issues.length;
++          ch._zod.check(payload);
++          const found = payload.issues[start];
++          if (found) found.continue = false;
++          return payload;
++        }
++      }
++    }
++    return parse(payload, ctx);
++  };
++}
++const arraySize = (input) => (Array.isArray(input) ? input.length : -1);
+ function handleArrayResult(result, final, index) {
+   if (result.issues.length) {
+     final.issues.push(...prefixIssues(index, result.issues));
+@@ -4174,6 +4214,7 @@ var $ZodArray = /* @__PURE__ */ $constructor("$ZodArray", (inst, def) => {
+     }
+     return payload;
+   };
++  capSize(inst, arraySize);
+ });
+ function handlePropertyResult(result, final, key, input, isOptionalIn, isOptionalOut) {
+   const isPresent = key in input;
+diff --git a/dist/gen/index.mjs b/dist/gen/index.mjs
+index 75b6ec71a1e6bdc7ff7e1360ed7c16af7fe3b50d..61aa1c3648754eb7a0c7dbe5a5c74bc2ca138de5 100644
+--- a/dist/gen/index.mjs
++++ b/dist/gen/index.mjs
+@@ -2916,6 +2916,46 @@ var $ZodDate = /* @__PURE__ */ $constructor("$ZodDate", (inst, def) => {
+     return payload;
+   };
+ });
++// Upstream Zod fix (colinhacks/zod#6652, first released in 4.6.6): leading
++// size checks reject oversized bounded collections before any element is
++// parsed, so an oversized `z.array(...).max(n)` cannot accumulate one issue
++// per element before reporting `too_big` (GHSA-mrhx-c7xc-m3w5). Bundled Zod
++// 4.4.3 predates the fix; this mirrors upstream `util.sizeCaps`/`capSize`.
++function sizeCaps(defChecks) {
++  const caps = [];
++  for (const ch of defChecks ?? []) {
++    const d = ch._zod.def;
++    // a later check may rewrite the value, ending the gate
++    if (!/_(length|size)$|_equals$/.test(d.check)) break;
++    const max = d.maximum ?? d.length ?? d.size;
++    if (typeof max === "number" && max >= 0) caps.push([max, ch]);
++  }
++  return caps;
++}
++function capSize(inst, sizeFn) {
++  const caps = sizeCaps(inst._zod.def.checks);
++  if (!caps.length) return;
++  const cap = Math.min(...caps.map((c) => c[0]));
++  const parse = inst._zod.parse;
++  inst._zod.parse = (payload, ctx) => {
++    const n = sizeFn(payload.value);
++    if (n > cap && !ctx?.skipChecks && ctx?.direction !== "backward") {
++      for (const [max, ch] of sizeCaps(inst._zod.def.checks)) {
++        if (n > max) {
++          const when = ch._zod.def.when;
++          if (when && !when(payload)) continue;
++          const start = payload.issues.length;
++          ch._zod.check(payload);
++          const found = payload.issues[start];
++          if (found) found.continue = false;
++          return payload;
++        }
++      }
++    }
++    return parse(payload, ctx);
++  };
++}
++const arraySize = (input) => (Array.isArray(input) ? input.length : -1);
+ function handleArrayResult(result, final, index) {
+   if (result.issues.length) {
+     final.issues.push(...prefixIssues(index, result.issues));
+@@ -2954,6 +2994,7 @@ var $ZodArray = /* @__PURE__ */ $constructor("$ZodArray", (inst, def) => {
+     }
+     return payload;
+   };
++  capSize(inst, arraySize);
+ });
+ function handlePropertyResult(result, final, key, input, isOptionalIn, isOptionalOut) {
+   const isPresent = key in input;
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 5445c7bff96ba62dc06ef09f2d2475826694cc5c..8ac6021535372c46f7322580418dc87feafa5bad 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -4110,6 +4110,46 @@ var $ZodDate = /* @__PURE__ */ $constructor("$ZodDate", (inst, def) => {
+     return payload;
+   };
+ });
++// Upstream Zod fix (colinhacks/zod#6652, first released in 4.6.6): leading
++// size checks reject oversized bounded collections before any element is
++// parsed, so an oversized `z.array(...).max(n)` cannot accumulate one issue
++// per element before reporting `too_big` (GHSA-mrhx-c7xc-m3w5). Bundled Zod
++// 4.4.3 predates the fix; this mirrors upstream `util.sizeCaps`/`capSize`.
++function sizeCaps(defChecks) {
++  const caps = [];
++  for (const ch of defChecks ?? []) {
++    const d = ch._zod.def;
++    // a later check may rewrite the value, ending the gate
++    if (!/_(length|size)$|_equals$/.test(d.check)) break;
++    const max = d.maximum ?? d.length ?? d.size;
++    if (typeof max === "number" && max >= 0) caps.push([max, ch]);
++  }
++  return caps;
++}
++function capSize(inst, sizeFn) {
++  const caps = sizeCaps(inst._zod.def.checks);
++  if (!caps.length) return;
++  const cap = Math.min(...caps.map((c) => c[0]));
++  const parse = inst._zod.parse;
++  inst._zod.parse = (payload, ctx) => {
++    const n = sizeFn(payload.value);
++    if (n > cap && !ctx?.skipChecks && ctx?.direction !== "backward") {
++      for (const [max, ch] of sizeCaps(inst._zod.def.checks)) {
++        if (n > max) {
++          const when = ch._zod.def.when;
++          if (when && !when(payload)) continue;
++          const start = payload.issues.length;
++          ch._zod.check(payload);
++          const found = payload.issues[start];
++          if (found) found.continue = false;
++          return payload;
++        }
++      }
++    }
++    return parse(payload, ctx);
++  };
++}
++const arraySize = (input) => (Array.isArray(input) ? input.length : -1);
+ function handleArrayResult(result, final, index) {
+   if (result.issues.length) {
+     final.issues.push(...prefixIssues(index, result.issues));
+@@ -4148,6 +4188,7 @@ var $ZodArray = /* @__PURE__ */ $constructor("$ZodArray", (inst, def) => {
+     }
+     return payload;
+   };
++  capSize(inst, arraySize);
+ });
+ function handlePropertyResult(result, final, key, input, isOptionalIn, isOptionalOut) {
+   const isPresent = key in input;

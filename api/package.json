@@ -10,8 +10,8 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
+		"@elysiajs/openapi": "^1.4.17",
 		"@elysiajs/opentelemetry": "^1.4.11",
-		"@elysiajs/swagger": "zoriya/elysia-swagger#build",
 		"@kubiks/otel-drizzle": "zoriya/drizzle-otel#build",
 		"@logtape/elysia": "2.4.2",
 		"@logtape/logtape": "2.4.2",
@@ -54,6 +54,15 @@
 	},
 	"module": "src/index.js",
 	"patchedDependencies": {
-		"drizzle-orm@0.45.3": "patches/drizzle-orm@0.45.3.patch"
+		"drizzle-orm@0.45.3": "patches/drizzle-orm@0.45.3.patch",
+		"@elysiajs/openapi@1.4.17": "patches/@elysiajs%2Fopenapi@1.4.17.patch"
+	},
+	"overrides": {
+		"@grpc/grpc-js": "^1.14.5",
+		"@opentelemetry/core": "^2.12.1",
+		"@opentelemetry/sdk-node": "^0.223.0",
+		"file-type": "~21.3.4",
+		"nanoid": "^5.1.16",
+		"protobufjs": "^7.6.6"
 	}
 }
