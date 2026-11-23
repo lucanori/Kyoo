@@ -95,8 +95,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.52.0 // indirect
 	github.com/aws/smithy-go v1.28.9 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	golang.org/x/net v0.61.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/net v0.63.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.44.0
 	golang.org/x/time v0.16.0 // indirect
 )
