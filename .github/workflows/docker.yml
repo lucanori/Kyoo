@@ -4,10 +4,11 @@ on:
     branches:
       - master
       - next
-    tags:
-      - v*
   pull_request:
   workflow_dispatch:
+  workflow_call:
+
+permissions: {}
 
 jobs:
   build:
@@ -15,6 +16,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      pull-requests: read
     strategy:
       fail-fast: false
       matrix:
@@ -45,24 +47,31 @@ jobs:
             image: ${{ github.repository_owner }}/kyoo_auth
     env:
       DOCKERHUB_ENABLED: ${{ secrets.DOCKER_USERNAME && secrets.DOCKER_PASSWORD && 'true' || 'false' }}
-    name: Build ${{matrix.label}}
+    name: Build ${{ matrix.label }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
-      - uses: dorny/paths-filter@v4
+      # Only branch pushes and pull requests need path detection. Tags (releases via the
+      # caller push) and manual dispatches build unconditionally so a first release never
+      # depends on PR or git path lookup. Uses the bare directory label (api/**), not
+      # ./api/**, matching the pinned paths-filter examples.
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
         id: filter
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch')
         with:
           filters: |
             should_run:
-              - '${{matrix.context}}/**'
+              - '${{ matrix.label }}/**'
 
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           images: |
-            docker.io/${{matrix.image}},enable=${{ env.DOCKERHUB_ENABLED }}
-            ghcr.io/${{matrix.image}}
+            docker.io/${{ matrix.image }},enable=${{ env.DOCKERHUB_ENABLED }}
+            ghcr.io/${{ matrix.image }}
           tags: |
             type=edge
             type=ref,event=branch
@@ -70,26 +79,47 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
+      # A reusable workflow sees the caller's event, so a release arrives as push on a
+      # v* tag. The gate never tests event_name == 'workflow_call'. Only a v* tag push
+      # (validated by the Release caller), a push to master/next, or a manual dispatch
+      # on master/next may push.
       - name: Check if a package should be pushed
+        id: push_gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
         run: |
-          echo "SHOULD_PUSH=$([ "${GITHUB_REF##*/}" == "master" ] || [ "${GITHUB_REF##*/}" == "next" ] || [ "${GITHUB_REF_TYPE}" == "tag" ] && echo "true" || echo "false")" >> $GITHUB_ENV
+          SHOULD_PUSH="false"
+          case "$EVENT_NAME" in
+            push)
+              case "$REF" in
+                refs/heads/master|refs/heads/next|refs/tags/v*) SHOULD_PUSH="true" ;;
+              esac
+              ;;
+            workflow_dispatch)
+              case "$REF" in
+                refs/heads/master|refs/heads/next) SHOULD_PUSH="true" ;;
+              esac
+              ;;
+          esac
+          echo "should_push=$SHOULD_PUSH" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Login to DockerHub
-        if: env.SHOULD_PUSH == 'true' && env.DOCKERHUB_ENABLED == 'true'
-        uses: docker/login-action@v4
+        if: steps.push_gate.outputs.should_push == 'true' && env.DOCKERHUB_ENABLED == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Login to GitHub Container Registry
-        if: env.SHOULD_PUSH == 'true'
-        uses: docker/login-action@v4
+        if: steps.push_gate.outputs.should_push == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -97,22 +127,22 @@ jobs:
 
       - name: Build and push
         id: docker_build
-        uses: docker/build-push-action@v7
-        if: steps.filter.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch' || startsWith(github.event.ref, 'refs/tags/v')
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        if: steps.filter.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
         with:
-          context: ${{matrix.context}}
-          file: ${{matrix.context}}/${{matrix.dockerfile}}
+          context: ${{ matrix.context }}
+          file: ${{ matrix.context }}/${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=0.0.0
-          push: ${{env.SHOULD_PUSH}}
-          tags: ${{steps.meta.outputs.tags}}
+          push: ${{ steps.push_gate.outputs.should_push }}
+          tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha,scope=${{ matrix.label }}
           cache-to: type=gha,mode=max,scope=${{ matrix.label }}
 
       - name: Sync README.MD
-        if: env.SHOULD_PUSH == 'true' && env.DOCKERHUB_ENABLED == 'true'
-        uses: ms-jpq/sync-dockerhub-readme@v1
+        if: steps.push_gate.outputs.should_push == 'true' && env.DOCKERHUB_ENABLED == 'true' && (steps.filter.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v'))
+        uses: ms-jpq/sync-dockerhub-readme@e2991ea1ba48832e73555cdbd5b82f5a2e91ee9b # v1
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}

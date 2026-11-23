@@ -2,8 +2,8 @@
 
 1. Install docker & docker-compose
 2. Download the
-   [`docker-compose.yml`](https://github.com/zoriya/kyoo/releases/latest/download/docker-compose.yml) and
-   [`.env`](https://github.com/zoriya/kyoo/releases/latest/download/.env.example) files
+   [`docker-compose.yml`](https://github.com/lucanori/Kyoo/releases/latest/download/docker-compose.yml) and
+   [`.env`](https://github.com/lucanori/Kyoo/releases/latest/download/.env.example) files
 3. Fill the `.env` file with your configuration options. Ensure it's named `.env` (nothing before the dot)
 4. Look at [Hardware Acceleration section](#Hardware-Acceleration) if you need it
 5. Look at [FAQ](#FAQ) if you need it,
@@ -22,8 +22,8 @@ Those files can be put in any directory of your choice.
 
 Those files are:
 
-- A `docker-compose.yml` (simply download docker-compose.yml from [the latest release](https://github.com/zoriya/kyoo/releases/latest/download/docker-compose.yml)).
-- A `.env` file that you will need to **fill**. Look at the example [.env.example](https://github.com/zoriya/kyoo/releases/latest/download/env.example). It's name NEEDS to be `.env` (nothing before the dot)
+- A `docker-compose.yml` (simply download docker-compose.yml from [the latest release](https://github.com/lucanori/Kyoo/releases/latest/download/docker-compose.yml)).
+- A `.env` file that you will need to **fill**. Look at the example [.env.example](https://github.com/lucanori/Kyoo/releases/latest/download/env.example). It's name NEEDS to be `.env` (nothing before the dot)
 
 > If you want an explanation of what are those files, you can read the following:
 > The `docker-compose.yml` file describes the different services of Kyoo, where they should be downloaded and their start order. \
@@ -101,7 +101,7 @@ For example, if your library is split into multiples paths you can edit the `vol
 
 ```patch
  x-transcoder: &transcoder-base
-   image: ghcr.io/zoriya/kyoo_transcoder:edge
+   image: ghcr.io/lucanori/kyoo_transcoder:edge
    networks:
      default:
        aliases:

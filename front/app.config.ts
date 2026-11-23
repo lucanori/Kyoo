@@ -18,7 +18,7 @@ export const expo: ExpoConfig = {
 		supportsTablet: true,
 	},
 	android: {
-		package: IS_DEV ? "dev.zoriya.kyoo.dev" : "dev.zoriya.kyoo",
+		package: IS_DEV ? "dev.lucanori.kyoo.dev" : "dev.lucanori.kyoo",
 		versionCode: process.env.ANDROID_VERSION_CODE
 			? Number(process.env.ANDROID_VERSION_CODE)
 			: undefined,

@@ -1,6 +1,6 @@
 x-transcoder: &transcoder-base
   build: ./transcoder
-  image: ghcr.io/zoriya/kyoo_transcoder:edge
+  image: ${KYOO_IMAGE_REPO:-ghcr.io/lucanori}/kyoo_transcoder:${KYOO_IMAGE_TAG:-edge}
   networks:
     default:
       aliases:
@@ -29,7 +29,7 @@ x-transcoder: &transcoder-base
 services:
   front:
     build: ./front
-    image: ghcr.io/zoriya/kyoo_front:edge
+    image: ${KYOO_IMAGE_REPO:-ghcr.io/lucanori}/kyoo_front:${KYOO_IMAGE_TAG:-edge}
     restart: unless-stopped
     environment:
       - KYOO_URL=${KYOO_URL:-http://api:5000/api}
@@ -40,7 +40,7 @@ services:
 
   auth:
     build: ./auth
-    image: ghcr.io/zoriya/kyoo_auth:edge
+    image: ${KYOO_IMAGE_REPO:-ghcr.io/lucanori}/kyoo_auth:${KYOO_IMAGE_TAG:-edge}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -62,7 +62,7 @@ services:
 
   api:
     build: ./api
-    image: ghcr.io/zoriya/kyoo_api:edge
+    image: ${KYOO_IMAGE_REPO:-ghcr.io/lucanori}/kyoo_api:${KYOO_IMAGE_TAG:-edge}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -89,7 +89,7 @@ services:
 
   scanner:
     build: ./scanner
-    image: ghcr.io/zoriya/kyoo_scanner:edge
+    image: ${KYOO_IMAGE_REPO:-ghcr.io/lucanori}/kyoo_scanner:${KYOO_IMAGE_TAG:-edge}
     restart: unless-stopped
     depends_on:
       auth:

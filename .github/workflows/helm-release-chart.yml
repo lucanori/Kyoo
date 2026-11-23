@@ -1,25 +1,90 @@
 name: Release Helm Chart
 on:
-  push:
-    tags:
-      - v*
   workflow_dispatch:
     inputs:
-      channel:
-        description: 'Release channel (master, edge, or leave blank for tag-based)'
+      chart_version:
+        description: 'SemVer chart version (e.g. 0.0.0-edge or 1.2.3)'
         required: false
-        default: 'master'
+        default: '0.0.0-edge'
+        type: string
+      image_tag:
+        description: 'Container image tag (defaults to edge for manual runs, or chart_version if set)'
+        required: false
+        default: 'edge'
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: 'Exact stripped SemVer release version (e.g. 1.2.3 or 1.2.3-rc.1)'
+        required: true
+        type: string
+
+permissions: {}
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up Helm
         uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+
+      # Does not test github.event_name == 'workflow_call': a reusable workflow sees the
+      # caller's event (push for releases), never workflow_call. Selection uses a nonempty
+      # inputs.version for releases and only uses manual fields on workflow_dispatch.
+      - name: Determine and validate chart version and image tag
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CALL_VERSION: ${{ inputs.version }}
+          INPUT_CHART_VERSION: ${{ inputs.chart_version }}
+          INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          if [ -n "$CALL_VERSION" ]; then
+            CHART_VERSION="$CALL_VERSION"
+            IMAGE_TAG="$CALL_VERSION"
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            CHART_VERSION="${INPUT_CHART_VERSION:-0.0.0-edge}"
+            IMAGE_TAG="${INPUT_IMAGE_TAG:-$CHART_VERSION}"
+          else
+            echo "::error::Release version input is required. The helm release must be called with a nonempty validated version; manual fields are only allowed on workflow_dispatch (event=$EVENT_NAME)." >&2
+            exit 1
+          fi
+
+          for value in "$CHART_VERSION" "$IMAGE_TAG"; do
+            case "$value" in
+              *$'\n'*|*$'\r'*)
+                echo "::error::Version contains a newline." >&2
+                exit 1
+                ;;
+            esac
+            if [ -z "$value" ] || [ "${#value}" -gt 128 ]; then
+              echo "::error::Version must be between 1 and 128 bytes." >&2
+              exit 1
+            fi
+          done
+
+          if ! [[ "$CHART_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?$ ]]; then
+            echo "::error::Invalid SemVer chart version. Must be MAJOR.MINOR.PATCH[-PRERELEASE] without 'v' prefix or '+build' metadata." >&2
+            exit 1
+          fi
+
+          if ! [[ "$IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]]; then
+            echo "::error::Invalid image tag. Must match OCI tag grammar: first character alphanumeric or underscore, then alphanumeric, dot, underscore or dash, at most 128 bytes." >&2
+            exit 1
+          fi
+
+          echo "chart_version=$CHART_VERSION" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "Using chart version: $CHART_VERSION, image tag: $IMAGE_TAG"
 
       - name: Log in to GHCR
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
@@ -31,24 +96,21 @@ jobs:
       - name: Update Helm Dependencies
         run: helm dependency update ./chart
 
-      - name: Determine Chart Version
-        id: version
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.channel }}"
-          else
-            TAG=$(echo ${GITHUB_REF#refs/tags/} | sed 's/^v//')
-          fi
-          echo "TAG=$TAG" >> "${GITHUB_ENV}"
-          echo "Using chart version: $TAG"
-
       - name: Package Helm Chart
-        run: helm package ./chart --version $TAG --app-version $TAG
+        env:
+          CHART_VERSION: ${{ steps.version.outputs.chart_version }}
+          IMAGE_TAG: ${{ steps.version.outputs.image_tag }}
+        run: helm package ./chart --version "$CHART_VERSION" --app-version "$IMAGE_TAG"
 
       - name: Build Helm-safe repo name
+        id: repo
+        env:
+          OWNER: ${{ github.repository_owner }}
         run: |
-          REPO_NAME="$(echo "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER}/helm-charts" | tr '[:upper:]' '[:lower:]')"
-          echo "REPO_NAME=${REPO_NAME}" >> "${GITHUB_ENV}"
+          REPO_NAME="$(printf 'oci://ghcr.io/%s/helm-charts' "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "repo_name=$REPO_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Push Helm Chart to GHCR
-        run: helm push kyoo-*.tgz "${REPO_NAME}"
+        env:
+          REPO_NAME: ${{ steps.repo.outputs.repo_name }}
+        run: helm push kyoo-*.tgz "$REPO_NAME"

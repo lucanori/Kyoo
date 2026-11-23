@@ -4,7 +4,7 @@
 # global configures shared microservices and subcharts settings
 global:
   image:
-    repositoryBase: "ghcr.io/zoriya"
+    repositoryBase: "ghcr.io/lucanori"
     tag: ""
     imagePullPolicy: IfNotPresent
   imagePullSecrets: []

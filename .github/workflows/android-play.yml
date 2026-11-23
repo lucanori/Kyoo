@@ -45,32 +45,53 @@ on:
         type: string
         default: completed
 
+permissions: {}
+
 concurrency:
   group: android-play-${{ github.ref }}
   cancel-in-progress: false
 
+# Upstream reference only: Google Play publishing is disabled on lucanori/Kyoo.
+# No ENABLE_GOOGLE_PLAY opt-in variable exists for this fork.
 jobs:
   setup:
     name: Resolve version and tracks
+    if: github.repository == 'zoriya/Kyoo'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       tracks: ${{ steps.version.outputs.tracks }}
       name: ${{ steps.version.outputs.name }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Resolve version and tracks
         id: version
+        env:
+          INPUT_TRACKS: ${{ inputs.tracks }}
+          INPUT_INTERNAL: ${{ inputs.internal }}
+          INPUT_ALPHA: ${{ inputs.alpha }}
+          INPUT_BETA: ${{ inputs.beta }}
+          INPUT_PRODUCTION: ${{ inputs.production }}
+          INPUT_VERSION_NAME: ${{ inputs.version-name }}
+          REPO: ${{ github.repository }}
         run: |
-          TRACKS="${{ inputs.tracks }}"
+          if [ "$REPO" != "zoriya/Kyoo" ]; then
+            echo "::error::Refusing to publish to Google Play from fork $REPO. This workflow is upstream-only and disabled on lucanori/Kyoo." >&2
+            exit 1
+          fi
+
+          TRACKS="$INPUT_TRACKS"
           if [ -z "$TRACKS" ]; then
-            if [ "${{ inputs.internal }}" = "true" ]; then TRACKS="$TRACKS,internal"; fi
-            if [ "${{ inputs.alpha }}" = "true" ]; then TRACKS="$TRACKS,alpha"; fi
-            if [ "${{ inputs.beta }}" = "true" ]; then TRACKS="$TRACKS,beta"; fi
-            if [ "${{ inputs.production }}" = "true" ]; then TRACKS="$TRACKS,production"; fi
+            if [ "$INPUT_INTERNAL" = "true" ]; then TRACKS="$TRACKS,internal"; fi
+            if [ "$INPUT_ALPHA" = "true" ]; then TRACKS="$TRACKS,alpha"; fi
+            if [ "$INPUT_BETA" = "true" ]; then TRACKS="$TRACKS,beta"; fi
+            if [ "$INPUT_PRODUCTION" = "true" ]; then TRACKS="$TRACKS,production"; fi
             TRACKS="${TRACKS#,}"
           fi
           if [ -z "$TRACKS" ]; then
@@ -79,7 +100,7 @@ jobs:
           fi
           echo "tracks=$TRACKS" >> "$GITHUB_OUTPUT"
 
-          VERSION="${{ inputs.version-name }}"
+          VERSION="$INPUT_VERSION_NAME"
           if [ -z "$VERSION" ]; then
             VERSION="$(git describe --tags --abbrev=0)"
           fi
@@ -91,6 +112,8 @@ jobs:
     name: Build ${{ matrix.target }} AAB
     needs: setup
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -104,6 +127,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -205,9 +230,11 @@ jobs:
     name: Publish to Google Play
     needs: [setup, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Download AABs
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: aabs
 

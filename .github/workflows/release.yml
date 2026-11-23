@@ -4,39 +4,77 @@ on:
     tags:
       - v*
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
-  draft:
-    name: Create draft release
+  validate:
+    name: Validate release tag
     runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      tag: ${{ steps.semver.outputs.tag }}
+      version: ${{ steps.semver.outputs.version }}
+      is_prerelease: ${{ steps.semver.outputs.is_prerelease }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Set correct versions
+      - name: Validate SemVer tag
+        id: semver
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          VERSION=${{ github.ref_name }}
-          VERSION=${VERSION:1} # Remove v prefix
-          VERSION=${VERSION%.*} # Remove minor version
-          sed "s/edge/$VERSION/" -i docker-compose.yml
+          case "$REF_NAME" in
+            *$'\n'*|*$'\r'*)
+              echo "::error::Invalid release tag. Tag contains a newline." >&2
+              exit 1
+              ;;
+          esac
+          if [ -z "$REF_NAME" ] || [ "${#REF_NAME}" -gt 128 ]; then
+            echo "::error::Invalid release tag length. Tag must be between 1 and 128 bytes." >&2
+            exit 1
+          fi
+          if ! [[ "$REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?$ ]]; then
+            echo "::error::Invalid release tag. Expected vMAJOR.MINOR.PATCH[-PRERELEASE] without '+build' metadata." >&2
+            exit 1
+          fi
 
-      - name: Upload artifacts to draft release
-        uses: softprops/action-gh-release@v3
-        with:
-          draft: true
-          generate_release_notes: true
-          tag_name: ${{ github.ref_name }}
-          files: |
-            ./docker-compose.yml
-            ./.env.example
+          VERSION="${REF_NAME#v}"
+          IS_PRERELEASE="false"
+          if printf '%s' "$VERSION" | grep -q '-'; then
+            IS_PRERELEASE="true"
+          fi
 
-  native:
-    name: Build Android ${{ matrix.tv && 'TV' || 'phone' }} APK
-    needs: draft
+          {
+            echo "tag=$REF_NAME"
+            echo "version=$VERSION"
+            echo "is_prerelease=$IS_PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
+          echo "Validated release tag $REF_NAME (version=$VERSION, prerelease=$IS_PRERELEASE)"
+
+  docker:
+    name: Build and push container images
+    needs: validate
     permissions:
-      contents: write
+      contents: read
+      packages: write
+      pull-requests: read
+    uses: ./.github/workflows/docker.yml
+    secrets: inherit
+
+  helm:
+    name: Package and push Helm chart
+    needs: [validate, docker]
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/helm-release-chart.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+    secrets: inherit
+
+  android:
+    name: Build Android ${{ matrix.tv && 'TV' || 'phone' }} APK
+    needs: validate
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -45,24 +83,58 @@ jobs:
     with:
       variant: release
       tv: ${{ matrix.tv }}
-      attach-to-release: true
-      release-tag: ${{ github.ref_name }}
-    secrets: inherit
-
-  play:
-    name: Publish to Google Play
-    uses: ./.github/workflows/android-play.yml
-    with:
-      tracks: production
-      version-name: ${{ github.ref_name }}
+      release-tag: ${{ needs.validate.outputs.tag }}
     secrets: inherit
 
   publish:
     name: Publish release
     runs-on: ubuntu-latest
-    needs: [draft, native, play]
+    needs: [validate, docker, helm, android]
+    permissions:
+      contents: write
     steps:
-      - name: Publish release
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Download Android APK artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: kyoo*.apk
+          path: artifacts
+
+      - name: Pin release version in Compose artifact
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release edit ${{ github.ref_name }} --draft=false --repo ${{ github.repository }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -eu
+          sed -i "s|:-edge}|:-${VERSION}}|g" docker-compose.yml
+          COUNT="$(grep -c ":-${VERSION}}" docker-compose.yml || true)"
+          if [ "$COUNT" -ne 5 ]; then
+            echo "::error::Expected 5 updated image tags in docker-compose.yml, found $COUNT." >&2
+            exit 1
+          fi
+
+      - name: Verify release files exist
+        run: |
+          set -eu
+          test -s docker-compose.yml
+          test -s .env.example
+          test -s artifacts/kyoo.apk/kyoo.apk
+          test -s artifacts/kyoo-tv.apk/kyoo-tv.apk
+          echo "All release files exist."
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
+        with:
+          draft: false
+          prerelease: ${{ needs.validate.outputs.is_prerelease == 'true' }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          tag_name: ${{ needs.validate.outputs.tag }}
+          files: |
+            ./docker-compose.yml
+            ./.env.example
+            ./artifacts/kyoo.apk/kyoo.apk
+            ./artifacts/kyoo-tv.apk/kyoo-tv.apk

@@ -6,7 +6,7 @@ Kyoo consists of multiple interconnected workloads, leveraging a variety of tech
 Below provides an example for deploying Kyoo and its dependencies using subcharts.  This uses a single Postgres instance and initializes mutliple databases.
 
 ```sh
-helm upgrade kyoo oci://ghcr.io/zoriya/helm-charts/kyoo --install --values myvalues.yaml
+helm upgrade kyoo oci://ghcr.io/lucanori/helm-charts/kyoo --install --values myvalues.yaml
 ```
 `myvaules.yaml` content
 ```yaml
